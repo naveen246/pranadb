@@ -201,7 +201,7 @@ func isSchemaNeeded(ast *parser.AST) bool {
 func (e *Executor) CreateSession() *sess.Session {
 	seq := atomic.AddInt64(&e.sessionIDSequence, 1)
 	sessionID := fmt.Sprintf("%d-%d", e.cluster.GetNodeID(), seq)
-	return sess.NewSession(sessionID, &sessCloser{clus: e.cluster, notifClient: e.notifClient})
+	return sess.NewSession(sessionID, e.metaController, &sessCloser{clus: e.cluster, notifClient: e.notifClient})
 }
 
 func (s *sessCloser) CloseRemoteSessions(sessionID string) error {

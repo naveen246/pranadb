@@ -159,7 +159,7 @@ func (p *Engine) ExecuteRemotePullQuery(queryInfo *cluster.QueryExecutionInfo) (
 	s, ok := p.getCachedSession(queryInfo.SessionID)
 	newSession := false
 	if !ok {
-		s = sess.NewSession(queryInfo.SessionID, nil)
+		s = sess.NewSession(queryInfo.SessionID, p.metaController, nil)
 		newSession = true
 	}
 
@@ -352,7 +352,7 @@ func (p *Engine) ExecuteQuery(schemaName string, query string) (rows *common.Row
 	if !ok {
 		return nil, errors.Errorf("no such schema %s", schemaName)
 	}
-	sess := sess.NewSession("", nil)
+	sess := sess.NewSession("", p.metaController, nil)
 	sess.UseSchema(schema)
 	exec, err := p.BuildPullQuery(sess, query)
 	if err != nil {

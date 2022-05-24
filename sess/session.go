@@ -1,6 +1,7 @@
 package sess
 
 import (
+	"github.com/squareup/pranadb/meta"
 	"github.com/squareup/pranadb/tidb/planner"
 	"sync"
 	"sync/atomic"
@@ -16,24 +17,26 @@ import (
 // The default schema on connect is determined at user login from their user account information.
 // It can be changed by a USE <schema_name> command, if the user is an admin.
 type Session struct {
-	ID           string
-	Schema       *common.Schema
-	planner      *parplan.Planner
-	PsCache      map[int64]*PreparedStatement
-	stmtSequence int64
-	QueryInfo    *cluster.QueryExecutionInfo
-	CurrentQuery interface{} // TODO find a better way - typed as interface{} to avoid circular dependency with pull
-	Lock         sync.Mutex
-	sessCloser   RemoteSessionCloser
+	ID             string
+	Schema         *common.Schema
+	planner        *parplan.Planner
+	PsCache        map[int64]*PreparedStatement
+	stmtSequence   int64
+	QueryInfo      *cluster.QueryExecutionInfo
+	CurrentQuery   interface{} // TODO find a better way - typed as interface{} to avoid circular dependency with pull
+	Lock           sync.Mutex
+	sessCloser     RemoteSessionCloser
+	metaController *meta.Controller
 }
 
-func NewSession(id string, sessCloser RemoteSessionCloser) *Session {
+func NewSession(id string, metaController *meta.Controller, sessCloser RemoteSessionCloser) *Session {
 	return &Session{
-		ID:           id,
-		PsCache:      make(map[int64]*PreparedStatement),
-		QueryInfo:    new(cluster.QueryExecutionInfo),
-		stmtSequence: -1,
-		sessCloser:   sessCloser,
+		ID:             id,
+		PsCache:        make(map[int64]*PreparedStatement),
+		QueryInfo:      new(cluster.QueryExecutionInfo),
+		stmtSequence:   -1,
+		sessCloser:     sessCloser,
+		metaController: metaController,
 	}
 }
 
@@ -81,13 +84,18 @@ type PreparedStatement struct {
 
 // Abort should be invoked if the session might have running queries
 func (s *Session) Abort() error {
-	return s.sessCloser.CloseRemoteSessions(s.ID)
+	if s.sessCloser != nil {
+		return s.sessCloser.CloseRemoteSessions(s.ID)
+	}
+	return nil
 }
 
 // Close must only be invoked if no queries are running
-func (s *Session) Close(handler SchemasHandler) error {
-	handler.DeleteSchemaIfEmpty(s.Schema)
-	if len(s.PsCache) != 0 {
+func (s *Session) Close() error {
+	s.Lock.Lock()
+	s.metaController.DeleteSchemaIfEmpty(s.Schema)
+	s.Lock.Unlock()
+	if len(s.PsCache) != 0 && s.sessCloser != nil {
 		// We will only have remote sessions if we have prepared statements so we don't need to broadcast session
 		// close otherwise
 		return s.sessCloser.CloseRemoteSessions(s.ID)
@@ -97,8 +105,4 @@ func (s *Session) Close(handler SchemasHandler) error {
 
 type RemoteSessionCloser interface {
 	CloseRemoteSessions(sessionID string) error
-}
-
-type SchemasHandler interface {
-	DeleteSchemaIfEmpty(schema *common.Schema)
 }
